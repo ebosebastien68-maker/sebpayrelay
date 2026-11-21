@@ -1,0 +1,12 @@
+# Secrets : ne jamais envoyer sur GitHub
+.env
+.env.*
+!.env.example
+
+# Dépendances et compilation
+node_modules/
+dist/
+
+# Divers
+*.log
+.DS_Store
