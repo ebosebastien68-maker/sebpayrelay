@@ -1,0 +1,19 @@
+[Unit]
+Description=SebPay Relay (API relais vers SebPay)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/sebpay-relay
+EnvironmentFile=/home/admin/sebpay-relay/.env
+# Vérifier le chemin réel avec : which node
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
