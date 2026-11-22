@@ -6,8 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=admin
-WorkingDirectory=/home/admin/sebpay-relay
-EnvironmentFile=/home/admin/sebpay-relay/.env
+WorkingDirectory=/opt/sebpay-relay
+EnvironmentFile=/opt/sebpay-relay/.env
 # Vérifier le chemin réel avec : which node
 ExecStart=/usr/bin/node dist/server.js
 Restart=always
