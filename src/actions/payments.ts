@@ -53,24 +53,58 @@ export const paymentsActions: ActionMap = {
       );
     }
 
+    // Vérifie que le lien de paiement utilise HTTP ou HTTPS.
+    let checkoutUrl: URL;
+
+    try {
+      checkoutUrl = new URL(session.checkout_url);
+
+      if (
+        checkoutUrl.protocol !== "https:" &&
+        checkoutUrl.protocol !== "http:"
+      ) {
+        throw new Error("Protocole non autorisé");
+      }
+    } catch {
+      throw new RelayError(
+        502,
+        "SEBPAY_INVALID_CHECKOUT_URL",
+        "SebPay a renvoyé une URL de paiement invalide"
+      );
+    }
+
+    // Vérifie la date d'expiration renvoyée par SebPay.
+    if (
+      session.expires_at !== undefined &&
+      session.expires_at !== null &&
+      typeof session.expires_at !== "string"
+    ) {
+      throw new RelayError(
+        502,
+        "SEBPAY_INVALID_EXPIRATION",
+        "SebPay a renvoyé une date d'expiration invalide"
+      );
+    }
+
+    const expiresAt = session.expires_at ?? null;
+
     // Enregistre le lien et l'identifiant de session dans PostgreSQL.
     await setPaymentLink(
       externalReference,
       session.id,
-      session.checkout_url,
-      session.expires_at ?? null
+      checkoutUrl.toString(),
+      expiresAt
     );
 
     return {
       session_id: session.id,
       status: session.status,
-      checkout_url: session.checkout_url,
+      checkout_url: checkoutUrl.toString(),
       amount: session.amount,
       currency: session.currency,
       external_reference: externalReference,
-      expires_at: session.expires_at ?? null,
+      expires_at: expiresAt,
       idempotent_replay: session.idempotent_replay === true,
     };
   },
 };
-
