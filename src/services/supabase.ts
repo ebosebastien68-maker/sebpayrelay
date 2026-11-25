@@ -49,11 +49,31 @@ async function callSupabaseRpc(
 
   const result = await response.json().catch(() => null);
 
-  if (result !== true) {
+  // Les fonctions PostgreSQL renvoient des objets JSONB.
+  if (
+    result === null ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    typeof result.ok !== "boolean"
+  ) {
     throw new RelayError(
       502,
-      "SUPABASE_RPC_FAILED",
-      `La fonction RPC ${functionName} n'a pas confirmé son exécution`
+      "SUPABASE_RPC_INVALID_RESPONSE",
+      `La fonction RPC ${functionName} a renvoyé une réponse invalide`
+    );
+  }
+
+  // Une réponse ok:false correspond à un refus métier de la fonction.
+  if (result.ok === false) {
+    const reason =
+      typeof result.reason === "string"
+        ? result.reason
+        : "UNKNOWN_REASON";
+
+    throw new RelayError(
+      409,
+      "SUPABASE_RPC_REJECTED",
+      `La fonction RPC ${functionName} a refusé l'opération : ${reason}`
     );
   }
 }
@@ -94,4 +114,3 @@ export async function applyPaymentResult(
     p_result: result,
   });
 }
-
