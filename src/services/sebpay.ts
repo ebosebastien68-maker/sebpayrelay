@@ -1,3 +1,4 @@
+
 import { config } from "../config";
 import { RelayError } from "../errors";
 
@@ -38,44 +39,170 @@ const PASSTHROUGH_STATUS = new Set([400, 404, 409, 422, 429]);
 function readErrors(json: unknown): Record<string, unknown> | undefined {
   if (typeof json === "object" && json !== null && "errors" in json) {
     const errors = (json as { errors: unknown }).errors;
-    if (typeof errors === "object" && errors !== null && !Array.isArray(errors)) {
+
+    if (
+      typeof errors === "object" &&
+      errors !== null &&
+      !Array.isArray(errors)
+    ) {
       return errors as Record<string, unknown>;
     }
   }
+
   return undefined;
 }
 
 function toRelayError(status: number, json: unknown): RelayError {
   const errors = readErrors(json);
-  const sebpayCode = typeof errors?.code === "string" ? errors.code : undefined;
+  const sebpayCode =
+    typeof errors?.code === "string" ? errors.code : undefined;
+
   const message =
-    typeof json === "object" && json !== null && typeof (json as { message?: unknown }).message === "string"
+    typeof json === "object" &&
+    json !== null &&
+    typeof (json as { message?: unknown }).message === "string"
       ? (json as { message: string }).message
       : "Erreur renvoyée par SebPay";
+
   const relayStatus = PASSTHROUGH_STATUS.has(status) ? status : 502;
-  return new RelayError(relayStatus, sebpayCode ?? "SEBPAY_ERROR", message, {
-    sebpay_status: status,
-    sebpay_code: sebpayCode,
-    errors,
-  });
+
+  return new RelayError(
+    relayStatus,
+    sebpayCode ?? "SEBPAY_ERROR",
+    message,
+    {
+      sebpay_status: status,
+      sebpay_code: sebpayCode,
+      errors,
+    }
+  );
 }
 
 // Selon les endpoints, la réponse peut être à la racine ou dans "data".
 function unwrap(json: unknown): Record<string, unknown> | undefined {
-  if (typeof json !== "object" || json === null || Array.isArray(json)) {
+  if (
+    typeof json !== "object" ||
+    json === null ||
+    Array.isArray(json)
+  ) {
     return undefined;
   }
+
   const root = json as Record<string, unknown>;
   const inner = root.data;
-  if (typeof inner === "object" && inner !== null && !Array.isArray(inner)) {
+
+  if (
+    typeof inner === "object" &&
+    inner !== null &&
+    !Array.isArray(inner)
+  ) {
     return inner as Record<string, unknown>;
   }
+
   return root;
 }
 
-async function request(method: "GET" | "POST", path: string, body?: unknown): Promise<Record<string, unknown>> {
+// Vérifie les champs obligatoires et optionnels d'une session SebPay.
+function validateCheckoutSession(
+  payload: Record<string, unknown>
+): CheckoutSession {
+  if (
+    typeof payload.id !== "string" ||
+    payload.id.trim() === "" ||
+    typeof payload.status !== "string" ||
+    payload.status.trim() === "" ||
+    typeof payload.amount !== "number" ||
+    !Number.isFinite(payload.amount) ||
+    typeof payload.currency !== "string" ||
+    payload.currency.trim() === ""
+  ) {
+    throw new RelayError(
+      502,
+      "SEBPAY_INVALID_SESSION",
+      "SebPay a renvoyé une session avec des champs obligatoires invalides"
+    );
+  }
+
+  const nullableStringFields = [
+    "transaction_id",
+    "transaction_status",
+    "external_reference",
+    "description",
+    "cancel_url",
+  ];
+
+  for (const field of nullableStringFields) {
+    const value = payload[field];
+
+    if (
+      value !== undefined &&
+      value !== null &&
+      typeof value !== "string"
+    ) {
+      throw new RelayError(
+        502,
+        "SEBPAY_INVALID_SESSION",
+        `SebPay a renvoyé un champ ${field} invalide`
+      );
+    }
+  }
+
+  const stringFields = [
+    "checkout_url",
+    "expires_at",
+    "created_at",
+  ];
+
+  for (const field of stringFields) {
+    const value = payload[field];
+
+    if (value !== undefined && typeof value !== "string") {
+      throw new RelayError(
+        502,
+        "SEBPAY_INVALID_SESSION",
+        `SebPay a renvoyé un champ ${field} invalide`
+      );
+    }
+  }
+
+  if (
+    payload.metadata !== undefined &&
+    payload.metadata !== null &&
+    (
+      typeof payload.metadata !== "object" ||
+      Array.isArray(payload.metadata)
+    )
+  ) {
+    throw new RelayError(
+      502,
+      "SEBPAY_INVALID_SESSION",
+      "SebPay a renvoyé des métadonnées invalides"
+    );
+  }
+
+  if (
+    payload.idempotent_replay !== undefined &&
+    typeof payload.idempotent_replay !== "boolean"
+  ) {
+    throw new RelayError(
+      502,
+      "SEBPAY_INVALID_SESSION",
+      "SebPay a renvoyé un indicateur idempotent invalide"
+    );
+  }
+
+  return payload as unknown as CheckoutSession;
+}
+
+async function request(
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown
+): Promise<Record<string, unknown>> {
   const url = `${config.sebpay.baseUrl}${path}`;
+
   let response: Response;
+
   try {
     response = await fetch(url, {
       method,
@@ -89,11 +216,17 @@ async function request(method: "GET" | "POST", path: string, body?: unknown): Pr
       signal: AbortSignal.timeout(config.httpTimeoutMs),
     });
   } catch {
-    throw new RelayError(502, "SEBPAY_UNREACHABLE", "SebPay est injoignable ou trop lent");
+    throw new RelayError(
+      502,
+      "SEBPAY_UNREACHABLE",
+      "SebPay est injoignable ou trop lent"
+    );
   }
 
   const text = await response.text();
+
   let json: unknown = null;
+
   try {
     json = text === "" ? null : JSON.parse(text);
   } catch {
@@ -105,24 +238,39 @@ async function request(method: "GET" | "POST", path: string, body?: unknown): Pr
   }
 
   const payload = unwrap(json);
+
   if (payload === undefined) {
-    throw new RelayError(502, "SEBPAY_INVALID_RESPONSE", "Réponse SebPay illisible");
+    throw new RelayError(
+      502,
+      "SEBPAY_INVALID_RESPONSE",
+      "Réponse SebPay illisible"
+    );
   }
+
   return payload;
 }
 
-export async function createCheckoutSession(input: CreateSessionInput): Promise<CheckoutSession> {
+export async function createCheckoutSession(
+  input: CreateSessionInput
+): Promise<CheckoutSession> {
   const payload = await request("POST", "/checkout/sessions", {
     ...input,
     // Le webhook est toujours celui du relais : Supabase n'a pas à le connaître.
     callback_url: config.sebpay.callbackUrl,
   });
-  return payload as unknown as CheckoutSession;
+
+  return validateCheckoutSession(payload);
 }
 
-export async function getCheckoutSession(idOrReference: string): Promise<CheckoutSession> {
-  const payload = await request("GET", `/checkout/sessions/${encodeURIComponent(idOrReference)}`);
-  return payload as unknown as CheckoutSession;
+export async function getCheckoutSession(
+  idOrReference: string
+): Promise<CheckoutSession> {
+  const payload = await request(
+    "GET",
+    `/checkout/sessions/${encodeURIComponent(idOrReference)}`
+  );
+
+  return validateCheckoutSession(payload);
 }
 
 // Vue minimale d'une session, ce que le relais renvoie à Supabase.
