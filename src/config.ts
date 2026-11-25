@@ -1,3 +1,4 @@
+
 import "dotenv/config";
 
 function required(name: string): string {
@@ -23,18 +24,25 @@ function positiveInt(name: string, fallback: number): number {
 // Le relais refuse de démarrer s'il manque une variable.
 export const config = {
   port: positiveInt("PORT", 3000),
+
   // Écoute locale uniquement : Nginx est le seul point d'entrée public.
   host: "127.0.0.1",
-  httpTimeoutMs: positiveInt("HTTP_TIMEOUT_MS", 4000),
+
+  httpTimeoutMs: positiveInt("HTTP_TIMEOUT_MS", 10000),
+
   sebpay: {
     baseUrl: required("SEBPAY_BASE_URL").replace(/\/+$/, ""),
     publicKey: required("SEBPAY_PUBLIC_KEY"),
     secretKey: required("SEBPAY_SECRET_KEY"),
     callbackUrl: required("SEBPAY_CALLBACK_URL"),
   },
+
   relaySharedSecret: required("RELAY_SHARED_SECRET"),
+
   supabase: {
-    webhookUrl: required("SUPABASE_WEBHOOK_URL"),
-    webhookSecret: required("SUPABASE_WEBHOOK_SECRET"),
+    url: required("SUPABASE_URL").replace(/\/+$/, ""),
+    anonKey: required("SUPABASE_ANON_KEY"),
+    relaySecret: required("SEBPAY_CALLBACK_SECRET"),
   },
 } as const;
+

@@ -1,4 +1,7 @@
+
 import { createCheckoutSession } from "../services/sebpay";
+import { setPaymentLink } from "../services/supabase";
+import { RelayError } from "../errors";
 import type { ActionMap } from "../types";
 import {
   asObject,
@@ -12,16 +15,21 @@ import {
 } from "../validate";
 
 export const paymentsActions: ActionMap = {
-  // Crée une session de Checkout hébergé et renvoie le lien de paiement.
+  // Crée une session SebPay et enregistre son lien dans Supabase.
   createSession: async (data) => {
     const input = asObject(data, "data");
+
+    const externalReference = reqString(
+      input,
+      "external_reference",
+      255
+    );
 
     const session = await createCheckoutSession({
       amount: reqAmount(input, "amount"),
       currency: reqCurrency(input, "currency"),
       redirect_url: reqHttpUrl(input, "redirect_url"),
-      // Obligatoire ici : c'est l'identifiant de ta commande, la clé de toute la vérification.
-      external_reference: reqString(input, "external_reference", 255),
+      external_reference: externalReference,
       cancel_url: optHttpUrl(input, "cancel_url"),
       description: optString(input, "description", 255),
       customer_name: optString(input, "customer_name", 255),
@@ -30,15 +38,39 @@ export const paymentsActions: ActionMap = {
       metadata: optObject(input, "metadata"),
     });
 
+    // Vérifie les informations essentielles renvoyées par SebPay.
+    if (
+      typeof session.id !== "string" ||
+      session.id.trim() === "" ||
+      typeof session.checkout_url !== "string" ||
+      session.checkout_url.trim() === "" ||
+      session.external_reference !== externalReference
+    ) {
+      throw new RelayError(
+        502,
+        "SEBPAY_INVALID_SESSION",
+        "SebPay a renvoyé une session incomplète ou une référence incorrecte"
+      );
+    }
+
+    // Enregistre le lien et l'identifiant de session dans PostgreSQL.
+    await setPaymentLink(
+      externalReference,
+      session.id,
+      session.checkout_url,
+      session.expires_at ?? null
+    );
+
     return {
       session_id: session.id,
       status: session.status,
       checkout_url: session.checkout_url,
       amount: session.amount,
       currency: session.currency,
-      external_reference: session.external_reference ?? null,
+      external_reference: externalReference,
       expires_at: session.expires_at ?? null,
       idempotent_replay: session.idempotent_replay === true,
     };
   },
 };
+
